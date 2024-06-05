@@ -22,3 +22,17 @@ PreCommit:
   YamlLint:
     enabled: true
     on_warn: fail
+
+  Cppcheck:
+    description: Lint C/C++ source files with cppcheck
+    enabled: true
+    required_executable: cppcheck
+    flags:
+      - --quiet
+      - --language=c
+      - --enable=all
+      - --suppress=missingIncludeSystem
+      - "--template={file}:{line}:{message}"
+    include:
+      - '**/*.c'
+      - '**/*.h'
