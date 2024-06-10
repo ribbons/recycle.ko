@@ -36,3 +36,9 @@ PreCommit:
     include:
       - '**/*.c'
       - '**/*.h'
+
+  ShellCheck:
+    enabled: true
+    on_warn: fail
+    include:
+      - test.bats
