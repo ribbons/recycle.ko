@@ -11,6 +11,11 @@
 
 MODULE_LICENSE("GPL");
 
+static char* paths[5];
+static int pathcount = 0;
+
+module_param_array(paths, charp, &pathcount, 0400);
+
 int pre_security_path_unlink(struct kprobe *p, struct pt_regs *regs)
 {
     pr_info("Before security_path_unlink\n");
@@ -24,6 +29,12 @@ static struct kprobe kp = {
 
 static __init int recycle_init(void)
 {
+    if(pathcount == 0)
+    {
+        pr_err("At least one recycle dir path needed via 'paths' parameter\n");
+        return -EINVAL;
+    }
+
     int error = register_kprobe(&kp);
 
     if(error)
