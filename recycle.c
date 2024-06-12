@@ -8,6 +8,7 @@
 
 #include <linux/kprobes.h>
 #include <linux/module.h>
+#include <linux/namei.h>
 
 MODULE_LICENSE("GPL");
 
@@ -15,6 +16,8 @@ static char* paths[5];
 static int pathcount = 0;
 
 module_param_array(paths, charp, &pathcount, 0400);
+
+static struct path recycledirs[ARRAY_SIZE(paths)];
 
 int pre_security_path_unlink(struct kprobe *p, struct pt_regs *regs)
 {
@@ -35,6 +38,32 @@ static __init int recycle_init(void)
         return -EINVAL;
     }
 
+    for(int i = 0; i < pathcount; i++)
+    {
+        int error = kern_path(paths[i], LOOKUP_DIRECTORY, &recycledirs[i]);
+
+        if(error)
+        {
+            for(int j = i - 1; j >= 0; j--)
+            {
+                path_put(&recycledirs[i]);
+            }
+
+            switch(error)
+            {
+                case -ENOENT:
+                    pr_err("'%s' is not found\n", paths[i]);
+                    return -EINVAL;
+                case -ENOTDIR:
+                    pr_err("'%s' is not a directory\n", paths[i]);
+                    return error;
+                default:
+                    pr_err("kern_path failed with %d\n", error);
+                    return error;
+            }
+        }
+    }
+
     int error = register_kprobe(&kp);
 
     if(error)
@@ -50,6 +79,12 @@ static __init int recycle_init(void)
 static __exit void recycle_exit(void)
 {
     unregister_kprobe(&kp);
+
+    for(int i = 0; i < pathcount; i++)
+    {
+        path_put(&recycledirs[i]);
+    }
+
     pr_info("Exiting\n");
 }
 
