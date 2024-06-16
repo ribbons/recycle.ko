@@ -9,6 +9,7 @@
 #include <linux/kprobes.h>
 #include <linux/module.h>
 #include <linux/namei.h>
+#include <linux/slab.h>
 
 MODULE_LICENSE("GPL");
 
@@ -19,9 +20,83 @@ module_param_array(paths, charp, &pathcount, 0400);
 
 static struct path recycledirs[ARRAY_SIZE(paths)];
 
+bool recycle(const struct path *srcdir, struct dentry *dentry,
+    const struct path* recycledir, const char* recyclepath)
+{
+    if(srcdir->mnt != recycledir->mnt)
+    {
+        pr_debug("File not on same mount as recycle dir %s\n", recyclepath);
+        return false;
+    }
+
+    struct dentry *recycleroot = dget_parent(recycledir->dentry);
+    struct dentry *walk = dget(srcdir->dentry);
+
+    while(walk != recycleroot)
+    {
+        struct dentry *child = walk;
+        walk = dget_parent(child);
+        dput(child);
+    }
+
+    bool result = true;
+    char *destpath = NULL;
+    dput(walk);
+
+    size_t destlen = strlen(recyclepath) + dentry->d_name.len + 2;
+    destpath = kmalloc(destlen, GFP_KERNEL);
+    snprintf(destpath, destlen, "%s/%s", recyclepath, dentry->d_name.name);
+
+    pr_debug("New path under recycle dir: %s\n", destpath);
+
+    struct path destdir;
+    struct dentry *new_dentry =
+        kern_path_create(AT_FDCWD, destpath, &destdir, 0);
+
+    if(IS_ERR(new_dentry))
+    {
+        pr_err("kern_path_create failed with: %ld\n", PTR_ERR(new_dentry));
+        result = false;
+        goto cleanup;
+    }
+
+    struct user_namespace *mnt_usern = mnt_user_ns(recycledir->mnt);
+
+    int retval =
+        vfs_link(dentry, mnt_usern, destdir.dentry->d_inode, new_dentry, NULL);
+
+    if(retval)
+    {
+        pr_err("vfs_link failed with: %d\n", retval);
+        result = false;
+    }
+
+    done_path_create(&destdir, new_dentry);
+
+cleanup:
+    dput(recycleroot);
+    kfree(destpath);
+
+    return result;
+}
+
 int pre_security_path_unlink(struct kprobe *p, struct pt_regs *regs)
 {
-    pr_info("Before security_path_unlink\n");
+    #ifdef __x86_64__
+        const struct path *dir = (const struct path*)regs->di;
+        struct dentry *dentry = (struct dentry*)regs->si;
+    #else
+        #error "Argument retrieval not implemented for current platform"
+    #endif
+
+    for(int i = 0; i < pathcount; i++)
+    {
+        if(recycle(dir, dentry, &recycledirs[i], paths[i]))
+        {
+            break;
+        }
+    }
+
     return 0;
 }
 

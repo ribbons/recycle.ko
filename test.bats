@@ -23,12 +23,28 @@
 }
 
 load_with_paths() {
+    local recycledir
     rootdir=$(mktemp -dp "$XDG_RUNTIME_DIR")
-    sudo insmod recycle.ko paths="$rootdir"
+    recycledir=$rootdir/recycled
+    mkdir "$recycledir"
+    sudo insmod recycle.ko paths="$recycledir"
 }
 
 @test "module loads successfully with directory path" {
     load_with_paths
+}
+
+@test "file from recycle root moves to recycle dir root" {
+    load_with_paths
+
+    touch "$rootdir/inroot"
+    inode=$(stat -c '%i' "$rootdir/inroot")
+
+    rm "$rootdir/inroot"
+    [[ ! -f $rootdir/inroot ]]
+
+    [[ -f $rootdir/recycled/inroot ]]
+    [[ $inode -eq $(stat -c '%i' "$rootdir/recycled/inroot") ]]
 }
 
 teardown() {
