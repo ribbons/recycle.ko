@@ -43,6 +43,14 @@ bool recycle(const struct path *srcdir, struct dentry *dentry,
             return false;
         }
 
+        if(walk == recycledir->dentry)
+        {
+            pr_debug("File is already within recycle dir %s\n", recyclepath);
+
+            dput(walk);
+            return false;
+        }
+
         struct dentry *child = walk;
         walk = dget_parent(child);
         dput(child);

@@ -50,6 +50,14 @@ load_with_paths() {
     [[ ! -f $rootdir/inroot ]]
 }
 
+@test "file within recycle directory is ignored" {
+    load_with_paths
+
+    touch "$rootdir/recycled/inrecycled"
+    rm "$rootdir/recycled/inrecycled"
+    [[ ! -f $rootdir/recycled/inrecycled ]]
+}
+
 @test "file from recycle root moves to recycle dir root" {
     load_with_paths
 
