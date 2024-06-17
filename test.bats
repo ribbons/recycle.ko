@@ -34,6 +34,14 @@ load_with_paths() {
     load_with_paths
 }
 
+@test "file from different mount is ignored" {
+    load_with_paths
+
+    tempfile=$(mktemp)
+    rm "$tempfile"
+    [[ ! -f $tempfile ]]
+}
+
 @test "file from below recycle root is ignored" {
     load_with_paths nested/recycled
 
