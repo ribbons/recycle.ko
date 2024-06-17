@@ -34,6 +34,15 @@ bool recycle(const struct path *srcdir, struct dentry *dentry,
 
     while(walk != recycleroot)
     {
+        if(walk == srcdir->mnt->mnt_root)
+        {
+            pr_debug("Reached root of mount without finding parent of %s\n",
+                recyclepath);
+
+            dput(walk);
+            return false;
+        }
+
         struct dentry *child = walk;
         walk = dget_parent(child);
         dput(child);
