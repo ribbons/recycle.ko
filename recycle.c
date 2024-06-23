@@ -18,37 +18,61 @@ static int pathcount = 0;
 
 module_param_array(paths, charp, &pathcount, 0400);
 
-static struct path recycledirs[ARRAY_SIZE(paths)];
-
-bool recycle(const struct path *srcdir, struct dentry *dentry,
-    const struct path* recycledir, const char* recyclepath)
+struct recycler
 {
-    if(srcdir->mnt != recycledir->mnt)
+    struct qstr path;
+    struct path dir;
+};
+
+static struct recycler recycleconfs[ARRAY_SIZE(paths)];
+
+static int buf_add_parent(const char* pathbuf, char **pos, struct qstr parent)
+{
+    if(*pos - pathbuf < parent.len + 1)
     {
-        pr_debug("File not on same mount as recycle dir %s\n", recyclepath);
-        return false;
+        return -ENAMETOOLONG;
     }
 
-    struct dentry *recycleroot = dget_parent(recycledir->dentry);
-    struct dentry *walk = dget(srcdir->dentry);
+    *pos -= parent.len;
+    memcpy(*pos, parent.name, parent.len);
+
+    *(--*pos) = '/';
+    return 0;
+}
+
+char* collect_path_to_root(const char *pathbuf, char *bufpos,
+    const struct path *dir, const struct dentry *recycleroot,
+    struct recycler *conf)
+{
+    struct dentry *walk = dget(dir->dentry);
+    char *result = bufpos;
 
     while(walk != recycleroot)
     {
-        if(walk == srcdir->mnt->mnt_root)
+        if(walk == dir->mnt->mnt_root)
         {
             pr_debug("Reached root of mount without finding parent of %s\n",
-                recyclepath);
+                conf->path.name);
 
-            dput(walk);
-            return false;
+            result = NULL;
+            goto cleanup;
         }
 
-        if(walk == recycledir->dentry)
+        if(walk == conf->dir.dentry)
         {
-            pr_debug("File is already within recycle dir %s\n", recyclepath);
+            pr_debug("File is already within recycle dir %s\n",
+                conf->path.name);
 
-            dput(walk);
-            return false;
+            result = NULL;
+            goto cleanup;
+        }
+
+        int error = buf_add_parent(pathbuf, &result, walk->d_name);
+
+        if(error)
+        {
+            result = ERR_PTR(error);
+            goto cleanup;
         }
 
         struct dentry *child = walk;
@@ -56,14 +80,53 @@ bool recycle(const struct path *srcdir, struct dentry *dentry,
         dput(child);
     }
 
-    bool result = true;
-    char *destpath = NULL;
+cleanup:
     dput(walk);
+    return result;
+}
 
-    size_t destlen = strlen(recyclepath) + dentry->d_name.len + 2;
-    destpath = kmalloc(destlen, GFP_KERNEL);
-    snprintf(destpath, destlen, "%s/%s", recyclepath, dentry->d_name.name);
+bool recycle(const struct path *srcdir, struct dentry *dentry,
+    struct recycler* conf)
+{
+    if(srcdir->mnt != conf->dir.mnt)
+    {
+        pr_debug("File not on same mount as recycle dir %s\n", conf->path.name);
+        return false;
+    }
 
+    struct dentry *recycleroot = dget_parent(conf->dir.dentry);
+    char *pathbuf = kmalloc(PATH_MAX, GFP_KERNEL);
+    char *destpath = pathbuf + PATH_MAX;
+
+    *(--destpath) = '\0';
+    bool result = true;
+
+    int error = buf_add_parent(pathbuf, &destpath, dentry->d_name);
+
+    if(error)
+    {
+        result = false;
+        goto cleanup;
+    }
+
+    destpath = collect_path_to_root(pathbuf, destpath, srcdir, recycleroot,
+        conf);
+
+    if(IS_ERR(destpath) || destpath == NULL)
+    {
+        result = false;
+        goto cleanup;
+    }
+
+    error = buf_add_parent(pathbuf, &destpath, conf->path);
+
+    if(error)
+    {
+        result = false;
+        goto cleanup;
+    }
+
+    destpath++;
     pr_debug("New path under recycle dir: %s\n", destpath);
 
     struct path destdir;
@@ -77,7 +140,7 @@ bool recycle(const struct path *srcdir, struct dentry *dentry,
         goto cleanup;
     }
 
-    struct user_namespace *mnt_usern = mnt_user_ns(recycledir->mnt);
+    struct user_namespace *mnt_usern = mnt_user_ns(conf->dir.mnt);
 
     int retval =
         vfs_link(dentry, mnt_usern, destdir.dentry->d_inode, new_dentry, NULL);
@@ -92,7 +155,7 @@ bool recycle(const struct path *srcdir, struct dentry *dentry,
 
 cleanup:
     dput(recycleroot);
-    kfree(destpath);
+    kfree(pathbuf);
 
     return result;
 }
@@ -108,7 +171,7 @@ int pre_security_path_unlink(struct kprobe *p, struct pt_regs *regs)
 
     for(int i = 0; i < pathcount; i++)
     {
-        if(recycle(dir, dentry, &recycledirs[i], paths[i]))
+        if(recycle(dir, dentry, &recycleconfs[i]))
         {
             break;
         }
@@ -132,13 +195,13 @@ static __init int recycle_init(void)
 
     for(int i = 0; i < pathcount; i++)
     {
-        int error = kern_path(paths[i], LOOKUP_DIRECTORY, &recycledirs[i]);
+        int error = kern_path(paths[i], LOOKUP_DIRECTORY, &recycleconfs[i].dir);
 
         if(error)
         {
             for(int j = i - 1; j >= 0; j--)
             {
-                path_put(&recycledirs[i]);
+                path_put(&recycleconfs[i].dir);
             }
 
             switch(error)
@@ -154,6 +217,9 @@ static __init int recycle_init(void)
                     return error;
             }
         }
+
+        recycleconfs[i].path.name = paths[i];
+        recycleconfs[i].path.len = strlen(paths[i]);
     }
 
     int error = register_kprobe(&kp);
@@ -174,7 +240,7 @@ static __exit void recycle_exit(void)
 
     for(int i = 0; i < pathcount; i++)
     {
-        path_put(&recycledirs[i]);
+        path_put(&recycleconfs[i].dir);
     }
 
     pr_info("Exiting\n");
