@@ -85,6 +85,86 @@ cleanup:
     return result;
 }
 
+int create_dirs(const char *destpath, int pathlen, struct recycler *conf)
+{
+    char *pathcpy = kmalloc(pathlen, GFP_KERNEL);
+    memcpy(pathcpy, destpath, pathlen);
+
+    char* walk = pathcpy + pathlen - 1;
+    const char* stop = pathcpy + conf->path.len;
+
+    bool desc = true;
+    int depth = -1;
+    int error = 0;
+
+    while(desc || depth != 0)
+    {
+        if(desc)
+        {
+            while(*walk != '/')
+            {
+                walk--;
+            }
+
+            if(walk <= stop)
+            {
+                pr_debug("Reached recycle dir %s\n", conf->path.name);
+                goto cleanup;
+            }
+
+            *walk = '\0';
+            depth++;
+        }
+        else
+        {
+            while(*walk != '\0')
+            {
+                walk++;
+            }
+
+            *walk = '/';
+            depth--;
+        }
+
+        struct path path;
+        struct dentry *dentry =
+            kern_path_create(AT_FDCWD, pathcpy, &path, LOOKUP_DIRECTORY);
+
+        if(IS_ERR(dentry))
+        {
+            switch(PTR_ERR(dentry))
+            {
+                case -EEXIST:
+                    // Found existing directory
+                    desc = false;
+                    continue;
+                case -ENOENT:
+                    // Parent dir does not exist, create that first
+                    continue;
+            }
+
+            error = PTR_ERR(dentry);
+            goto cleanup;
+        }
+
+        error = vfs_mkdir(mnt_user_ns(path.mnt), path.dentry->d_inode, dentry,
+            0777);
+
+        done_path_create(&path, dentry);
+
+        if(error)
+        {
+            goto cleanup;
+        }
+
+        desc = false;
+    }
+
+cleanup:
+    kfree(pathcpy);
+    return error;
+}
+
 bool recycle(const struct path *srcdir, struct dentry *dentry,
     struct recycler* conf)
 {
@@ -128,6 +208,14 @@ bool recycle(const struct path *srcdir, struct dentry *dentry,
 
     destpath++;
     pr_debug("New path under recycle dir: %s\n", destpath);
+
+    error = create_dirs(destpath, PATH_MAX - (destpath - pathbuf), conf);
+
+    if(error)
+    {
+        result = false;
+        goto cleanup;
+    }
 
     struct path destdir;
     struct dentry *new_dentry =

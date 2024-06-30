@@ -85,6 +85,34 @@ load_with_paths() {
     [[ $inode -eq $(stat -c '%i' "$rootdir/recycled/subdir1/subdir2/file") ]]
 }
 
+@test "file from nested dirs moves to partly existing equivalent recycle dir" {
+    load_with_paths
+
+    mkdir -p "$rootdir/subdir1/subdir2" "$rootdir/recycled/subdir1"
+    touch "$rootdir/subdir1/subdir2/file"
+    inode=$(stat -c '%i' "$rootdir/subdir1/subdir2/file")
+
+    rm "$rootdir/subdir1/subdir2/file"
+    [[ ! -f $rootdir/subdir1/subdir2/file ]]
+
+    [[ -f $rootdir/recycled/subdir1/subdir2/file ]]
+    [[ $inode -eq $(stat -c '%i' "$rootdir/recycled/subdir1/subdir2/file") ]]
+}
+
+@test "file from nested dirs moves to created equivalent under recycle dir" {
+    load_with_paths
+
+    mkdir -p "$rootdir/subdir1/subdir2"
+    touch "$rootdir/subdir1/subdir2/file"
+    inode=$(stat -c '%i' "$rootdir/subdir1/subdir2/file")
+
+    rm "$rootdir/subdir1/subdir2/file"
+    [[ ! -f $rootdir/subdir1/subdir2/file ]]
+
+    [[ -f $rootdir/recycled/subdir1/subdir2/file ]]
+    [[ $inode -eq $(stat -c '%i' "$rootdir/recycled/subdir1/subdir2/file") ]]
+}
+
 teardown() {
     sudo rmmod recycle
     [[ $rootdir ]] && rm -r "$rootdir"
