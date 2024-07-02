@@ -135,6 +135,19 @@ load_with_paths() {
     [[ $inode2 -eq $(stat -c '%i' "$rootdir/root2/recycled/inroot2") ]]
 }
 
+@test "error when creating subdirectory is reflected as unlink failure" {
+    load_with_paths
+
+    mkdir -p "$rootdir/sub"
+    touch "$rootdir/sub/file" "$rootdir/recycled/sub"
+
+    run rm "$rootdir/sub/file"
+    [[ $status -ne 0 ]]
+    [[ ${lines[0]} == *"Not a directory" ]]
+
+    [[ -f "$rootdir/sub/file" ]]
+}
+
 teardown() {
     sudo rmmod recycle
     [[ $rootdir ]] && rm -r "$rootdir"

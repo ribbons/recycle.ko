@@ -143,6 +143,7 @@ int create_dirs(const char *destpath, int pathlen, struct recycler *conf)
                     continue;
             }
 
+            pr_err("Failed to create new directory path %s\n", pathcpy);
             error = PTR_ERR(dentry);
             goto cleanup;
         }
@@ -165,13 +166,13 @@ cleanup:
     return error;
 }
 
-bool recycle(const struct path *srcdir, struct dentry *dentry,
+int recycle(const struct path *srcdir, struct dentry *dentry,
     struct recycler* conf)
 {
     if(srcdir->mnt != conf->dir.mnt)
     {
         pr_debug("File not on same mount as recycle dir %s\n", conf->path.name);
-        return false;
+        return 1;
     }
 
     struct dentry *recycleroot = dget_parent(conf->dir.dentry);
@@ -179,41 +180,42 @@ bool recycle(const struct path *srcdir, struct dentry *dentry,
     char *destpath = pathbuf + PATH_MAX;
 
     *(--destpath) = '\0';
-    bool result = true;
 
-    int error = buf_add_parent(pathbuf, &destpath, dentry->d_name);
+    int retval = buf_add_parent(pathbuf, &destpath, dentry->d_name);
 
-    if(error)
+    if(retval)
     {
-        result = false;
         goto cleanup;
     }
 
     destpath = collect_path_to_root(pathbuf, destpath, srcdir, recycleroot,
         conf);
 
-    if(IS_ERR(destpath) || destpath == NULL)
+    if(IS_ERR(destpath))
     {
-        result = false;
+        retval = PTR_ERR(destpath);
+        goto cleanup;
+    }
+    else if(destpath == NULL)
+    {
+        retval = 1;
         goto cleanup;
     }
 
-    error = buf_add_parent(pathbuf, &destpath, conf->path);
+    retval = buf_add_parent(pathbuf, &destpath, conf->path);
 
-    if(error)
+    if(retval)
     {
-        result = false;
         goto cleanup;
     }
 
     destpath++;
     pr_debug("New path under recycle dir: %s\n", destpath);
 
-    error = create_dirs(destpath, PATH_MAX - (destpath - pathbuf), conf);
+    retval = create_dirs(destpath, PATH_MAX - (destpath - pathbuf), conf);
 
-    if(error)
+    if(retval)
     {
-        result = false;
         goto cleanup;
     }
 
@@ -223,20 +225,19 @@ bool recycle(const struct path *srcdir, struct dentry *dentry,
 
     if(IS_ERR(new_dentry))
     {
-        pr_err("kern_path_create failed with: %ld\n", PTR_ERR(new_dentry));
-        result = false;
+        pr_err("Failed to create new file path %s\n", destpath);
+        retval = PTR_ERR(new_dentry);
         goto cleanup;
     }
 
     struct user_namespace *mnt_usern = mnt_user_ns(conf->dir.mnt);
 
-    int retval =
+    retval =
         vfs_link(dentry, mnt_usern, destdir.dentry->d_inode, new_dentry, NULL);
 
     if(retval)
     {
-        pr_err("vfs_link failed with: %d\n", retval);
-        result = false;
+        pr_err("Failed to create new link %s\n", destpath);
     }
 
     done_path_create(&destdir, new_dentry);
@@ -245,10 +246,11 @@ cleanup:
     dput(recycleroot);
     kfree(pathbuf);
 
-    return result;
+    return retval;
 }
 
-int pre_security_path_unlink(struct kprobe *p, struct pt_regs *regs)
+int pre_security_path_unlink(struct kretprobe_instance *rpi,
+    struct pt_regs *regs)
 {
     #ifdef __x86_64__
         const struct path *dir = (const struct path*)regs->di;
@@ -257,20 +259,51 @@ int pre_security_path_unlink(struct kprobe *p, struct pt_regs *regs)
         #error "Argument retrieval not implemented for current platform"
     #endif
 
+    int result = 0;
+
     for(int i = 0; i < pathcount; i++)
     {
-        if(recycle(dir, dentry, &recycleconfs[i]))
+        result = recycle(dir, dentry, &recycleconfs[i]);
+
+        if(result <= 0)
         {
             break;
         }
     }
 
+    if(result < 0)
+    {
+        *(rpi->data) = result;
+        return 0;
+    }
+
+    // Skip return handler as return value does not need changing
+    return 1;
+}
+
+int post_security_path_unlink(struct kretprobe_instance *rpi,
+    struct pt_regs *regs)
+{
+    if(regs_return_value(regs))
+    {
+        // Already non-zero so no need to change
+        return 0;
+    }
+
+    #ifdef __x86_64__
+        regs->ax = *rpi->data;
+    #else
+        #error "Modifying return value not implemented for current platform"
+    #endif
+
     return 0;
 }
 
-static struct kprobe kp = {
-    .symbol_name = "security_path_unlink",
-    .pre_handler = pre_security_path_unlink,
+static struct kretprobe krp = {
+    .kp.symbol_name = "security_path_unlink",
+    .entry_handler = pre_security_path_unlink,
+    .handler = post_security_path_unlink,
+    .data_size = sizeof(int),
 };
 
 static __init int recycle_init(void)
@@ -310,11 +343,11 @@ static __init int recycle_init(void)
         recycleconfs[i].path.len = strlen(paths[i]);
     }
 
-    int error = register_kprobe(&kp);
+    int error = register_kretprobe(&krp);
 
     if(error)
     {
-        pr_err("Failed to register kprobe for %s\n", kp.symbol_name);
+        pr_err("Failed to register kretprobe for %s\n", krp.kp.symbol_name);
         return error;
     }
 
@@ -324,7 +357,7 @@ static __init int recycle_init(void)
 
 static __exit void recycle_exit(void)
 {
-    unregister_kprobe(&kp);
+    unregister_kretprobe(&krp);
 
     for(int i = 0; i < pathcount; i++)
     {
