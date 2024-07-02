@@ -23,11 +23,16 @@
 }
 
 load_with_paths() {
-    local recycledir
+    local -a recycledirs
     rootdir=$(mktemp -dp "$XDG_RUNTIME_DIR")
-    recycledir=$rootdir/${1:-recycled}
-    mkdir -p "$recycledir"
-    sudo insmod recycle.ko paths="$recycledir"
+
+    for name in "${@:-recycled}"; do
+        local recycledir=$rootdir/$name
+        mkdir -p "$recycledir"
+        recycledirs+=("$recycledir")
+    done
+
+    sudo insmod recycle.ko paths="$(IFS=,; echo "${recycledirs[*]}")"
 }
 
 @test "module loads successfully with directory path" {
@@ -111,6 +116,23 @@ load_with_paths() {
 
     [[ -f $rootdir/recycled/subdir1/subdir2/file ]]
     [[ $inode -eq $(stat -c '%i' "$rootdir/recycled/subdir1/subdir2/file") ]]
+}
+
+@test "files under different roots are moved to correct recycle directories" {
+    load_with_paths root1/recycled root2/recycled
+
+    touch "$rootdir/root1/inroot1" "$rootdir/root2/inroot2"
+    inode1=$(stat -c '%i' "$rootdir/root1/inroot1")
+    inode2=$(stat -c '%i' "$rootdir/root2/inroot2")
+
+    rm "$rootdir/root1/inroot1" "$rootdir/root2/inroot2"
+    [[ ! -f $rootdir/root1/inroot1 && ! -f $rootdir/root2/inroot2 ]]
+
+    [[ -f $rootdir/root1/recycled/inroot1 ]]
+    [[ -f $rootdir/root2/recycled/inroot2 ]]
+
+    [[ $inode1 -eq $(stat -c '%i' "$rootdir/root1/recycled/inroot1") ]]
+    [[ $inode2 -eq $(stat -c '%i' "$rootdir/root2/recycled/inroot2") ]]
 }
 
 teardown() {
