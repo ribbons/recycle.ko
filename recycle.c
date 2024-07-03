@@ -88,6 +88,12 @@ cleanup:
 int create_dirs(const char *destpath, int pathlen, struct recycler *conf)
 {
     char *pathcpy = kmalloc(pathlen, GFP_KERNEL);
+
+    if(!pathcpy)
+    {
+        return -ENOMEM;
+    }
+
     memcpy(pathcpy, destpath, pathlen);
 
     char* walk = pathcpy + pathlen - 1;
@@ -175,10 +181,14 @@ int recycle(const struct path *srcdir, struct dentry *dentry,
         return 1;
     }
 
-    struct dentry *recycleroot = dget_parent(conf->dir.dentry);
     char *pathbuf = kmalloc(PATH_MAX, GFP_KERNEL);
-    char *destpath = pathbuf + PATH_MAX;
 
+    if(!pathbuf)
+    {
+        return -ENOMEM;
+    }
+
+    char *destpath = pathbuf + PATH_MAX;
     *(--destpath) = '\0';
 
     int retval = buf_add_parent(pathbuf, &destpath, dentry->d_name);
@@ -187,6 +197,8 @@ int recycle(const struct path *srcdir, struct dentry *dentry,
     {
         goto cleanup;
     }
+
+    struct dentry *recycleroot = dget_parent(conf->dir.dentry);
 
     destpath = collect_path_to_root(pathbuf, destpath, srcdir, recycleroot,
         conf);
