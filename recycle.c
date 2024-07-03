@@ -67,7 +67,9 @@ char* collect_path_to_root(const char *pathbuf, char *bufpos,
             goto cleanup;
         }
 
+        spin_lock(&walk->d_lock);
         int error = buf_add_parent(pathbuf, &result, walk->d_name);
+        spin_unlock(&walk->d_lock);
 
         if(error)
         {
@@ -191,7 +193,9 @@ int recycle(const struct path *srcdir, struct dentry *dentry,
     char *destpath = pathbuf + PATH_MAX;
     *(--destpath) = '\0';
 
+    spin_lock(&dentry->d_lock);
     int retval = buf_add_parent(pathbuf, &destpath, dentry->d_name);
+    spin_unlock(&dentry->d_lock);
 
     if(retval)
     {
