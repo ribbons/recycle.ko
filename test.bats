@@ -148,6 +148,23 @@ load_with_paths() {
     [[ -f "$rootdir/sub/file" ]]
 }
 
+@test "resulting path longer than PATH_MAX is reflected as unlink failure" {
+    load_with_paths
+
+    longname=$(printf '%-255s' "" | tr ' ' 'c')
+    overlength=$rootdir$(printf "/$longname%.0s" {1..16})
+    pathmax=${overlength:0:4086}
+
+    mkdir -p "$(dirname "$pathmax")"
+    touch "$pathmax"
+
+    run rm "$pathmax"
+    [[ $status -ne 0 ]]
+    [[ ${lines[0]} == *"File name too long" ]]
+
+    [[ -f "$pathmax" ]]
+}
+
 teardown() {
     sudo rmmod recycle
     [[ $rootdir ]] && rm -r "$rootdir"

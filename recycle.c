@@ -30,6 +30,7 @@ static int buf_add_parent(const char* pathbuf, char **pos, struct qstr parent)
 {
     if(*pos - pathbuf < parent.len + 1)
     {
+        pr_err("File path too long to move to recycle dir\n");
         return -ENAMETOOLONG;
     }
 
