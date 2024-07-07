@@ -175,6 +175,28 @@ cleanup:
     return error;
 }
 
+int touch(struct vfsmount *mnt, struct dentry *dentry)
+{
+    int error = mnt_want_write(mnt);
+
+    if(error)
+    {
+        return error;
+    }
+
+    struct iattr attrs;
+    attrs.ia_valid = ATTR_CTIME | ATTR_MTIME | ATTR_ATIME | ATTR_TOUCH;
+
+    inode_lock(dentry->d_inode);
+    struct user_namespace *mnt_usern = mnt_user_ns(mnt);
+
+    error = notify_change(mnt_usern, dentry, &attrs, NULL);
+
+    inode_unlock(dentry->d_inode);
+    mnt_drop_write(mnt);
+    return error;
+}
+
 int recycle(const struct path *srcdir, struct dentry *dentry,
     struct recycler* conf)
 {
@@ -258,6 +280,11 @@ int recycle(const struct path *srcdir, struct dentry *dentry,
     }
 
     done_path_create(&destdir, new_dentry);
+
+    if(!retval)
+    {
+        retval = touch(conf->dir.mnt, dentry);
+    }
 
 cleanup:
     dput(recycleroot);

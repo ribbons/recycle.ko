@@ -76,6 +76,17 @@ load_with_paths() {
     [[ $inode -eq $(stat -c '%i' "$rootdir/recycled/inroot") ]]
 }
 
+@test "file mtime is updated when moved to recycle dir" {
+    load_with_paths
+
+    touch -t 200001010000 "$rootdir/inroot"
+
+    rmtime=$EPOCHSECONDS
+    rm "$rootdir/inroot"
+
+    [[ $(stat -c '%X' "$rootdir/recycled/inroot") -ge rmtime ]]
+}
+
 @test "file from nested dirs moves to existing equivalent under recycle dir" {
     load_with_paths
 
