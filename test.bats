@@ -1,6 +1,8 @@
 #!/usr/bin/env bats
 
 # Copyright © 2024 Matt Robinson
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 @test "module fails to load without arguments" {
     run sudo insmod recycle.ko
