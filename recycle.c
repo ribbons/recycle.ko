@@ -13,6 +13,9 @@
 
 MODULE_LICENSE("GPL");
 
+// Epoch time is 10 digits long until the year 2286 (plus one for the dot)
+#define SUFFIX_LEN 11
+
 static char* paths[5];
 static int pathcount = 0;
 
@@ -206,7 +209,7 @@ int recycle(const struct path *srcdir, struct dentry *dentry,
         return 1;
     }
 
-    char *pathbuf = kmalloc(PATH_MAX, GFP_KERNEL);
+    char *pathbuf = kmalloc(PATH_MAX + SUFFIX_LEN, GFP_KERNEL);
 
     if(!pathbuf)
     {
@@ -215,6 +218,7 @@ int recycle(const struct path *srcdir, struct dentry *dentry,
 
     char *destpath = pathbuf + PATH_MAX;
     *(--destpath) = '\0';
+    char *pathsuffix = destpath;
 
     spin_lock(&dentry->d_lock);
     int retval = buf_add_parent(pathbuf, &destpath, dentry->d_name);
@@ -258,15 +262,32 @@ int recycle(const struct path *srcdir, struct dentry *dentry,
         goto cleanup;
     }
 
+    bool suffixed = false;
     struct path destdir;
-    struct dentry *new_dentry =
-        kern_path_create(AT_FDCWD, destpath, &destdir, 0);
+    struct dentry *new_dentry;
 
-    if(IS_ERR(new_dentry))
+    while(true)
     {
-        pr_err("Failed to create new file path %s\n", destpath);
-        retval = PTR_ERR(new_dentry);
-        goto cleanup;
+        new_dentry = kern_path_create(AT_FDCWD, destpath, &destdir, 0);
+
+        if(IS_ERR(new_dentry))
+        {
+            retval = PTR_ERR(new_dentry);
+
+            if(retval == -EEXIST && !suffixed)
+            {
+                snprintf(pathsuffix, SUFFIX_LEN + 1, ".%lld",
+                    ktime_get_real_seconds());
+
+                suffixed = true;
+                continue;
+            }
+
+            pr_err("Failed to create new file path %s\n", destpath);
+            goto cleanup;
+        }
+
+        break;
     }
 
     struct user_namespace *mnt_usern = mnt_user_ns(conf->dir.mnt);

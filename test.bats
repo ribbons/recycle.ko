@@ -87,6 +87,23 @@ load_with_paths() {
     [[ $(stat -c '%X' "$rootdir/recycled/inroot") -ge rmtime ]]
 }
 
+@test "epoch time is appended after filename collision in recycle dir" {
+    load_with_paths
+
+    touch "$rootdir/inroot" "$rootdir/recycled/inroot"
+    inode=$(stat -c '%i' "$rootdir/inroot")
+
+    rmtime=$EPOCHSECONDS
+    rm "$rootdir/inroot"
+    newfile=("$rootdir"/recycled/inroot.*)
+
+    [[ -f ${newfile[0]} ]]
+    [[ $inode -eq $(stat -c '%i' "${newfile[0]}") ]]
+
+    suffix=${newfile[0]##*.}
+    [[ $suffix -ge $rmtime ]]
+}
+
 @test "file from nested dirs moves to existing equivalent under recycle dir" {
     load_with_paths
 
