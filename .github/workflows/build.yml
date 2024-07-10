@@ -1,0 +1,32 @@
+---
+# Copyright © 2024 Matt Robinson
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+name: Build & test
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '30 12 * * 5'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & test
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Bats
+        run: sudo apt-get install bats
+
+      - name: Build
+        run: make
+
+      - name: Test
+        run: ./test.bats

@@ -4,6 +4,10 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
+setup_file() {
+    sudo dmesg -n 3
+}
+
 @test "module fails to load without arguments" {
     run sudo insmod recycle.ko
     [[ $status -ne 0 ]]
