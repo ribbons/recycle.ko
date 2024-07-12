@@ -16,7 +16,12 @@ permissions:
 jobs:
   build:
     name: Build & test
-    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        os:
+          - ubuntu-22.04
+          - ubuntu-24.04
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
       - name: Checkout

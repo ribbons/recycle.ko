@@ -3,4 +3,5 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 obj-m := recycle.o
-ccflags-y += -std=gnu99 -Wno-declaration-after-statement -Werror
+ccflags-y += -std=gnu99 -Wno-declaration-after-statement \
+    -Wno-missing-prototypes -Wno-missing-declarations -Werror

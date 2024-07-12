@@ -10,6 +10,7 @@
 #include <linux/module.h>
 #include <linux/namei.h>
 #include <linux/slab.h>
+#include <linux/version.h>
 
 MODULE_LICENSE("GPL");
 
@@ -160,9 +161,13 @@ int create_dirs(const char *destpath, int pathlen, struct recycler *conf)
             goto cleanup;
         }
 
-        error = vfs_mkdir(mnt_user_ns(path.mnt), path.dentry->d_inode, dentry,
-            0777);
+        #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 3, 0)
+            struct user_namespace *idmap = mnt_user_ns(path.mnt);
+        #else
+            struct mnt_idmap *idmap = mnt_idmap(path.mnt);
+        #endif
 
+        error = vfs_mkdir(idmap, path.dentry->d_inode, dentry, 0777);
         done_path_create(&path, dentry);
 
         if(error)
@@ -191,9 +196,14 @@ int touch(struct vfsmount *mnt, struct dentry *dentry)
     attrs.ia_valid = ATTR_CTIME | ATTR_MTIME | ATTR_ATIME | ATTR_TOUCH;
 
     inode_lock(dentry->d_inode);
-    struct user_namespace *mnt_usern = mnt_user_ns(mnt);
 
-    error = notify_change(mnt_usern, dentry, &attrs, NULL);
+    #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 3, 0)
+        struct user_namespace *idmap = mnt_user_ns(mnt);
+    #else
+        struct mnt_idmap *idmap = mnt_idmap(mnt);
+    #endif
+
+    error = notify_change(idmap, dentry, &attrs, NULL);
 
     inode_unlock(dentry->d_inode);
     mnt_drop_write(mnt);
@@ -290,10 +300,13 @@ int recycle(const struct path *srcdir, struct dentry *dentry,
         break;
     }
 
-    struct user_namespace *mnt_usern = mnt_user_ns(conf->dir.mnt);
+    #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 3, 0)
+        struct user_namespace *idmap = mnt_user_ns(conf->dir.mnt);
+    #else
+        struct mnt_idmap *idmap = mnt_idmap(conf->dir.mnt);
+    #endif
 
-    retval =
-        vfs_link(dentry, mnt_usern, destdir.dentry->d_inode, new_dentry, NULL);
+    retval = vfs_link(dentry, idmap, destdir.dentry->d_inode, new_dentry, NULL);
 
     if(retval)
     {
@@ -338,7 +351,7 @@ int pre_security_path_unlink(struct kretprobe_instance *rpi,
 
     if(result < 0)
     {
-        *(rpi->data) = result;
+        *(int*)rpi->data = result;
         return 0;
     }
 
@@ -356,7 +369,7 @@ int post_security_path_unlink(struct kretprobe_instance *rpi,
     }
 
     #ifdef __x86_64__
-        regs->ax = *rpi->data;
+        regs->ax = *(int*)rpi->data;
     #else
         #error "Modifying return value not implemented for current platform"
     #endif
