@@ -230,6 +230,8 @@ int recycle(const struct path *srcdir, struct dentry *dentry,
     *(--destpath) = '\0';
     char *pathsuffix = destpath;
 
+    struct dentry *recycleroot = dget_parent(conf->dir.dentry);
+
     spin_lock(&dentry->d_lock);
     int retval = buf_add_parent(pathbuf, &destpath, dentry->d_name);
     spin_unlock(&dentry->d_lock);
@@ -238,8 +240,6 @@ int recycle(const struct path *srcdir, struct dentry *dentry,
     {
         goto cleanup;
     }
-
-    struct dentry *recycleroot = dget_parent(conf->dir.dentry);
 
     destpath = collect_path_to_root(pathbuf, destpath, srcdir, recycleroot,
         conf);

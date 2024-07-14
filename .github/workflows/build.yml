@@ -31,7 +31,7 @@ jobs:
         run: sudo apt-get install bats
 
       - name: Build
-        run: make
+        run: KCFLAGS=-fanalyzer make
 
       - name: Test
         run: ./test.bats
