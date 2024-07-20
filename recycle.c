@@ -46,15 +46,15 @@ static int buf_add_parent(const char* pathbuf, char **pos, struct qstr parent)
 }
 
 char* collect_path_to_root(const char *pathbuf, char *bufpos,
-    const struct path *dir, const struct dentry *recycleroot,
+    struct dentry *dir, const struct dentry *recycleroot,
     struct recycler *conf)
 {
-    struct dentry *walk = dget(dir->dentry);
+    struct dentry *walk = dir;
     char *result = bufpos;
 
     while(walk != recycleroot)
     {
-        if(walk == dir->mnt->mnt_root)
+        if(walk == conf->dir.mnt->mnt_root || IS_ROOT(walk))
         {
             pr_debug("Reached root of mount without finding parent of %s\n",
                 conf->path.name);
@@ -195,8 +195,6 @@ int touch(struct vfsmount *mnt, struct dentry *dentry)
     struct iattr attrs;
     attrs.ia_valid = ATTR_CTIME | ATTR_MTIME | ATTR_ATIME | ATTR_TOUCH;
 
-    inode_lock(dentry->d_inode);
-
     #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 3, 0)
         struct user_namespace *idmap = mnt_user_ns(mnt);
     #else
@@ -205,17 +203,16 @@ int touch(struct vfsmount *mnt, struct dentry *dentry)
 
     error = notify_change(idmap, dentry, &attrs, NULL);
 
-    inode_unlock(dentry->d_inode);
     mnt_drop_write(mnt);
     return error;
 }
 
-int recycle(const struct path *srcdir, struct dentry *dentry,
+int recycle(const struct inode *srcdir, struct dentry *dentry,
     struct recycler* conf)
 {
-    if(srcdir->mnt != conf->dir.mnt)
+    if(srcdir->i_sb != conf->dir.dentry->d_inode->i_sb)
     {
-        pr_debug("File not on same mount as recycle dir %s\n", conf->path.name);
+        pr_debug("File not on same fs as recycle dir %s\n", conf->path.name);
         return 1;
     }
 
@@ -241,8 +238,8 @@ int recycle(const struct path *srcdir, struct dentry *dentry,
         goto cleanup;
     }
 
-    destpath = collect_path_to_root(pathbuf, destpath, srcdir, recycleroot,
-        conf);
+    destpath = collect_path_to_root(pathbuf, destpath, dget_parent(dentry),
+        recycleroot, conf);
 
     if(IS_ERR(destpath))
     {
@@ -306,18 +303,28 @@ int recycle(const struct path *srcdir, struct dentry *dentry,
         struct mnt_idmap *idmap = mnt_idmap(conf->dir.mnt);
     #endif
 
+    // vfs_unlink calls security_inode_unlink after locking the inode but
+    // vfs_link also locks it, causing a hang unless we unlock first.
+    inode_unlock(dentry->d_inode);
+
     retval = vfs_link(dentry, idmap, destdir.dentry->d_inode, new_dentry, NULL);
+    inode_lock(dentry->d_inode);
+
+    done_path_create(&destdir, new_dentry);
 
     if(retval)
     {
         pr_err("Failed to create new link %s\n", destpath);
+        goto cleanup;
     }
 
-    done_path_create(&destdir, new_dentry);
+    retval = touch(conf->dir.mnt, dentry);
 
-    if(!retval)
+    // Redo check vfs_unlink made under the original lock so a flag change
+    // cannot slip through in the two short periods of being unlocked
+    if(IS_SWAPFILE(dentry->d_inode))
     {
-        retval = touch(conf->dir.mnt, dentry);
+        retval = -EPERM;
     }
 
 cleanup:
@@ -327,11 +334,11 @@ cleanup:
     return retval;
 }
 
-int pre_security_path_unlink(struct kretprobe_instance *rpi,
+int pre_security_inode_unlink(struct kretprobe_instance *rpi,
     struct pt_regs *regs)
 {
     #ifdef __x86_64__
-        const struct path *dir = (const struct path*)regs->di;
+        const struct inode *dir = (const struct inode*)regs->di;
         struct dentry *dentry = (struct dentry*)regs->si;
     #else
         #error "Argument retrieval not implemented for current platform"
@@ -359,7 +366,7 @@ int pre_security_path_unlink(struct kretprobe_instance *rpi,
     return 1;
 }
 
-int post_security_path_unlink(struct kretprobe_instance *rpi,
+int post_security_inode_unlink(struct kretprobe_instance *rpi,
     struct pt_regs *regs)
 {
     if(regs_return_value(regs))
@@ -378,9 +385,9 @@ int post_security_path_unlink(struct kretprobe_instance *rpi,
 }
 
 static struct kretprobe krp = {
-    .kp.symbol_name = "security_path_unlink",
-    .entry_handler = pre_security_path_unlink,
-    .handler = post_security_path_unlink,
+    .kp.symbol_name = "security_inode_unlink",
+    .entry_handler = pre_security_inode_unlink,
+    .handler = post_security_inode_unlink,
     .data_size = sizeof(int),
 };
 
