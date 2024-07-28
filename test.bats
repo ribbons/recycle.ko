@@ -169,6 +169,31 @@ load_with_paths() {
     [[ $inode2 -eq $(stat -c '%i' "$rootdir/root2/recycled/inroot2") ]]
 }
 
+@test "recycle succeeds even if recycle dir path not visible in namespace" {
+    load_with_paths
+
+    mkdir "$rootdir/subdir"
+    touch "$rootdir/subdir/file"
+    inode=$(stat -c '%i' "$rootdir/subdir/file")
+
+    binddir=$(mktemp -d)
+    sudo mount --bind "$rootdir/subdir" "$binddir"
+
+    run sudo unshare -m bash <<EOS
+        umount "$XDG_RUNTIME_DIR"
+        rm "$binddir/file"
+EOS
+
+    sudo umount "$binddir"
+    rmdir "$binddir"
+    [[ $status -eq 0 ]]
+
+    [[ ! -f "$rootdir/subdir/file" ]]
+    [[ -f "$rootdir/recycled/subdir/file" ]]
+
+    [[ $inode -eq $(stat -c '%i' "$rootdir/recycled/subdir/file") ]]
+}
+
 @test "error when creating subdirectory is reflected as unlink failure" {
     load_with_paths
 
@@ -186,9 +211,10 @@ load_with_paths() {
     load_with_paths
 
     longname=$(printf '%-255s' "" | tr ' ' 'c')
-    overlength=$rootdir$(printf "/$longname%.0s" {1..16})
-    pathmax=${overlength:0:4086}
+    overlength=$(printf "/$longname%.0s" {1..16})
+    pathmax=${overlength:1:4096}
 
+    cd "$rootdir"
     mkdir -p "$(dirname "$pathmax")"
     touch "$pathmax"
 
@@ -201,6 +227,6 @@ load_with_paths() {
 
 teardown() {
     sudo rmmod recycle
-    [[ $rootdir ]] && rm -r "$rootdir"
+    [[ $rootdir ]] && sudo rm -r "$rootdir"
     true
 }

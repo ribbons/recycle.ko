@@ -92,6 +92,65 @@ cleanup:
     return result;
 }
 
+struct dentry *vfs_path_create(struct filename *name, struct path *path,
+    struct path *root)
+{
+    struct dentry *dentry;
+    struct qstr last;
+    int type;
+
+    int error = vfs_path_parent_lookup(name, 0, path, &last, &type, root);
+
+    if(error)
+    {
+        return ERR_PTR(error);
+    }
+
+    error = mnt_want_write(path->mnt);
+
+    if(error)
+    {
+        path_put(path);
+        return ERR_PTR(error);
+    }
+
+    inode_lock_nested(path->dentry->d_inode, I_MUTEX_PARENT);
+
+    dentry = lookup_one_qstr_excl(&last, path->dentry,
+        LOOKUP_CREATE | LOOKUP_EXCL);
+
+    if(IS_ERR(dentry))
+    {
+        goto cleanup;
+    }
+
+    if(d_is_positive(dentry))
+    {
+        dput(dentry);
+        dentry = ERR_PTR(-EEXIST);
+        goto cleanup;
+    }
+
+    return dentry;
+
+cleanup:
+    inode_unlock(path->dentry->d_inode);
+    mnt_drop_write(path->mnt);
+    path_put(path);
+
+    return dentry;
+}
+
+struct dentry *kern_vfs_path_create(const char *relpath, struct path *path,
+    struct path *root)
+{
+    struct filename *relfilename = getname_kernel(relpath);
+    struct dentry *dentry = vfs_path_create(relfilename, path, root);
+
+    putname(relfilename);
+    return dentry;
+}
+
 int create_dirs(const char *destpath, int pathlen, struct recycler *conf)
 {
     char *pathcpy = kmalloc(pathlen, GFP_KERNEL);
@@ -104,7 +163,6 @@ int create_dirs(const char *destpath, int pathlen, struct recycler *conf)
     memcpy(pathcpy, destpath, pathlen);
 
     char* walk = pathcpy + pathlen - 1;
-    const char* stop = pathcpy + conf->path.len;
 
     bool desc = true;
     int depth = -1;
@@ -119,7 +177,7 @@ int create_dirs(const char *destpath, int pathlen, struct recycler *conf)
                 walk--;
             }
 
-            if(walk <= stop)
+            if(walk <= pathcpy)
             {
                 pr_debug("Reached recycle dir %s\n", conf->path.name);
                 goto cleanup;
@@ -141,7 +199,7 @@ int create_dirs(const char *destpath, int pathlen, struct recycler *conf)
 
         struct path path;
         struct dentry *dentry =
-            kern_path_create(AT_FDCWD, pathcpy, &path, LOOKUP_DIRECTORY);
+            kern_vfs_path_create(pathcpy, &path, &conf->dir);
 
         if(IS_ERR(dentry))
         {
@@ -161,11 +219,7 @@ int create_dirs(const char *destpath, int pathlen, struct recycler *conf)
             goto cleanup;
         }
 
-        #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 3, 0)
-            struct user_namespace *idmap = mnt_user_ns(path.mnt);
-        #else
-            struct mnt_idmap *idmap = mnt_idmap(path.mnt);
-        #endif
+        struct mnt_idmap *idmap = mnt_idmap(path.mnt);
 
         error = vfs_mkdir(idmap, path.dentry->d_inode, dentry, 0777);
         done_path_create(&path, dentry);
@@ -195,13 +249,7 @@ int touch(struct vfsmount *mnt, struct dentry *dentry)
     struct iattr attrs;
     attrs.ia_valid = ATTR_CTIME | ATTR_MTIME | ATTR_ATIME | ATTR_TOUCH;
 
-    #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 3, 0)
-        struct user_namespace *idmap = mnt_user_ns(mnt);
-    #else
-        struct mnt_idmap *idmap = mnt_idmap(mnt);
-    #endif
-
-    error = notify_change(idmap, dentry, &attrs, NULL);
+    error = notify_change(mnt_idmap(mnt), dentry, &attrs, NULL);
 
     mnt_drop_write(mnt);
     return error;
@@ -252,13 +300,6 @@ int recycle(const struct inode *srcdir, struct dentry *dentry,
         goto cleanup;
     }
 
-    retval = buf_add_parent(pathbuf, &destpath, conf->path);
-
-    if(retval)
-    {
-        goto cleanup;
-    }
-
     destpath++;
     pr_debug("New path under recycle dir: %s\n", destpath);
 
@@ -275,7 +316,7 @@ int recycle(const struct inode *srcdir, struct dentry *dentry,
 
     while(true)
     {
-        new_dentry = kern_path_create(AT_FDCWD, destpath, &destdir, 0);
+        new_dentry = kern_vfs_path_create(destpath, &destdir, &conf->dir);
 
         if(IS_ERR(new_dentry))
         {
@@ -297,11 +338,7 @@ int recycle(const struct inode *srcdir, struct dentry *dentry,
         break;
     }
 
-    #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 3, 0)
-        struct user_namespace *idmap = mnt_user_ns(conf->dir.mnt);
-    #else
-        struct mnt_idmap *idmap = mnt_idmap(conf->dir.mnt);
-    #endif
+    struct mnt_idmap *idmap = mnt_idmap(conf->dir.mnt);
 
     // vfs_unlink calls security_inode_unlink after locking the inode but
     // vfs_link also locks it, causing a hang unless we unlock first.
