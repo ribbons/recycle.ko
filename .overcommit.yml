@@ -31,6 +31,7 @@ PreCommit:
       - --quiet
       - --language=c
       - --enable=all
+      - --inline-suppr
       - --suppress=missingIncludeSystem
       - "--template={file}:{line}:{message}"
     include:
@@ -41,4 +42,5 @@ PreCommit:
     enabled: true
     on_warn: fail
     include:
+      - large-tree-test
       - test.bats

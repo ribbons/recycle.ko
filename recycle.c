@@ -1,18 +1,24 @@
 /*
  * Copyright © 2024 Matt Robinson
+ * Copyright © 2021-2022 Peter Zijlstra
+ * Copyright © 2019 Andi Kleen
+ * Copyright © 2018 Arnd Bergmann
+ * Copyright © 2017 Josef Bacik
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <linux/kprobes.h>
+#include <linux/ftrace.h>
 #include <linux/module.h>
 #include <linux/namei.h>
 #include <linux/slab.h>
 #include <linux/version.h>
 
 MODULE_LICENSE("GPL");
+
+#define STR_AND_LEN(s) s, sizeof(s) - 1
 
 // Epoch time is 10 digits long until the year 2286 (plus one for the dot)
 #define SUFFIX_LEN 11
@@ -29,6 +35,27 @@ struct recycler
 };
 
 static struct recycler recycleconfs[ARRAY_SIZE(paths)];
+
+#ifdef __x86_64__
+    asmlinkage void just_return_func(void);
+
+    asm(
+        ".text\n"
+        ".type just_return_func, @function\n"
+        ".globl just_return_func\n"
+        ASM_FUNC_ALIGN
+        "just_return_func:\n"
+            ANNOTATE_NOENDBR
+            ASM_RET
+        ".size just_return_func, .-just_return_func\n"
+    );
+
+    // cppcheck-suppress unusedFunction; referenced via a macro
+    void override_function_with_return(struct pt_regs *regs)
+    {
+        regs->ip = (unsigned long)&just_return_func;
+    }
+#endif
 
 static int buf_add_parent(const char* pathbuf, char **pos, struct qstr parent)
 {
@@ -371,15 +398,12 @@ cleanup:
     return retval;
 }
 
-int pre_security_inode_unlink(struct kretprobe_instance *rpi,
-    struct pt_regs *regs)
+void pre_security_inode_unlink(unsigned long ip, unsigned long parent_ip,
+    struct ftrace_ops *op, struct ftrace_regs *regs)
 {
-    #ifdef __x86_64__
-        const struct inode *dir = (const struct inode*)regs->di;
-        struct dentry *dentry = (struct dentry*)regs->si;
-    #else
-        #error "Argument retrieval not implemented for current platform"
-    #endif
+    const struct inode *dir =
+        (const struct inode*)ftrace_regs_get_argument(regs, 0);
+    struct dentry *dentry = (struct dentry*)ftrace_regs_get_argument(regs, 1);
 
     int result = 0;
 
@@ -395,38 +419,25 @@ int pre_security_inode_unlink(struct kretprobe_instance *rpi,
 
     if(result < 0)
     {
-        *(int*)rpi->data = result;
-        return 0;
+        ftrace_regs_set_return_value(regs, result);
+        ftrace_override_function_with_return(regs);
     }
-
-    // Skip return handler as return value does not need changing
-    return 1;
 }
 
-int post_security_inode_unlink(struct kretprobe_instance *rpi,
-    struct pt_regs *regs)
-{
-    if(regs_return_value(regs))
-    {
-        // Already non-zero so no need to change
-        return 0;
-    }
-
-    #ifdef __x86_64__
-        regs->ax = *(int*)rpi->data;
-    #else
-        #error "Modifying return value not implemented for current platform"
-    #endif
-
-    return 0;
-}
-
-static struct kretprobe krp = {
-    .kp.symbol_name = "security_inode_unlink",
-    .entry_handler = pre_security_inode_unlink,
-    .handler = post_security_inode_unlink,
-    .data_size = sizeof(int),
+static struct ftrace_ops ft = {
+    .func = pre_security_inode_unlink,
+    .flags = FTRACE_OPS_FL_SAVE_REGS |
+             FTRACE_OPS_FL_IPMODIFY |
+             FTRACE_OPS_FL_PERMANENT,
 };
+
+static void free_conf(void)
+{
+    for(int i = 0; i < pathcount; i++)
+    {
+        path_put(&recycleconfs[i].dir);
+    }
+}
 
 static __init int recycle_init(void)
 {
@@ -465,26 +476,35 @@ static __init int recycle_init(void)
         recycleconfs[i].path.len = strlen(paths[i]);
     }
 
-    int error = register_kretprobe(&krp);
+    int error = ftrace_set_filter(&ft, STR_AND_LEN("security_inode_unlink"), 0);
 
     if(error)
     {
-        pr_err("Failed to register kretprobe for %s\n", krp.kp.symbol_name);
-        return error;
+        pr_err("Failed to set ftrace filter\n");
+        goto cleanup;
+    }
+
+    error = register_ftrace_function(&ft);
+
+    if(error)
+    {
+        pr_err("Failed to register ftrace function");
+        goto cleanup;
     }
 
     pr_info("Init complete\n");
     return 0;
+
+cleanup:
+    free_conf();
+    return error;
 }
 
 static __exit void recycle_exit(void)
 {
-    unregister_kretprobe(&krp);
-
-    for(int i = 0; i < pathcount; i++)
-    {
-        path_put(&recycleconfs[i].dir);
-    }
+    unregister_ftrace_function(&ft);
+    ftrace_free_filter(&ft);
+    free_conf();
 
     pr_info("Exiting\n");
 }

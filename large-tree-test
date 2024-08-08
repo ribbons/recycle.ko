@@ -1,0 +1,25 @@
+#!/bin/bash -e
+
+# Copyright © 2024 Matt Robinson
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+mkdir linux recycled
+sudo insmod recycle.ko paths="$PWD/recycled"
+
+echo Fetching kernel tree...
+gh api repos/torvalds/linux/tarball/master | tar -xzC linux --strip-components=1
+
+echo Copying...
+cp -r linux{,-copy}
+
+echo Deleting...
+sudo dmesg -W &
+rm -rf linux
+sudo kill "$(jobs -p)"
+
+sudo rmmod recycle
+
+rsync -nrmv --no-links --size-only linux-copy/ recycled/linux/ |
+    grep -vF "skipping non-regular file" | tee output.log
+[[ $(wc -l < output.log) -eq 4 ]]

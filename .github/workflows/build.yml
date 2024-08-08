@@ -32,5 +32,10 @@ jobs:
       - name: Build
         run: KCFLAGS=-fanalyzer make
 
-      - name: Test
+      - name: Bats tests
         run: ./test.bats
+
+      - name: Large tree test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./large-tree-test
