@@ -72,7 +72,7 @@ static int buf_add_parent(const char* pathbuf, char **pos, struct qstr parent)
     return 0;
 }
 
-char* collect_path_to_root(const char *pathbuf, char *bufpos,
+static char* collect_path_to_root(const char *pathbuf, char *bufpos,
     struct dentry *dir, const struct dentry *recycleroot,
     struct recycler *conf)
 {
@@ -119,7 +119,7 @@ cleanup:
     return result;
 }
 
-struct dentry *vfs_path_create(struct filename *name, struct path *path,
+static struct dentry *vfs_path_create(struct filename *name, struct path *path,
     struct path *root)
 {
     struct dentry *dentry;
@@ -168,8 +168,8 @@ cleanup:
     return dentry;
 }
 
-struct dentry *kern_vfs_path_create(const char *relpath, struct path *path,
-    struct path *root)
+static struct dentry *kern_vfs_path_create(const char *relpath,
+    struct path *path, struct path *root)
 {
     struct filename *relfilename = getname_kernel(relpath);
     struct dentry *dentry = vfs_path_create(relfilename, path, root);
@@ -178,7 +178,7 @@ struct dentry *kern_vfs_path_create(const char *relpath, struct path *path,
     return dentry;
 }
 
-int create_dirs(const char *destpath, int pathlen, struct recycler *conf)
+static int create_dirs(const char *destpath, int pathlen, struct recycler *conf)
 {
     char *pathcpy = kmalloc(pathlen, GFP_KERNEL);
 
@@ -264,7 +264,7 @@ cleanup:
     return error;
 }
 
-int touch(struct vfsmount *mnt, struct dentry *dentry)
+static int touch(struct vfsmount *mnt, struct dentry *dentry)
 {
     int error = mnt_want_write(mnt);
 
@@ -282,7 +282,7 @@ int touch(struct vfsmount *mnt, struct dentry *dentry)
     return error;
 }
 
-int recycle(const struct inode *srcdir, struct dentry *dentry,
+static int recycle(const struct inode *srcdir, struct dentry *dentry,
     struct recycler* conf)
 {
     if(srcdir->i_sb != conf->dir.dentry->d_inode->i_sb)
@@ -398,7 +398,7 @@ cleanup:
     return retval;
 }
 
-void pre_security_inode_unlink(unsigned long ip, unsigned long parent_ip,
+static void pre_security_inode_unlink(unsigned long ip, unsigned long parent_ip,
     struct ftrace_ops *op, struct ftrace_regs *regs)
 {
     const struct inode *dir =
