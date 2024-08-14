@@ -20,8 +20,8 @@ MODULE_LICENSE("GPL");
 
 #define STR_AND_LEN(s) s, sizeof(s) - 1
 
-// Epoch time is 10 digits long until the year 2286 (plus one for the dot)
-#define SUFFIX_LEN 11
+// Epoch time in ms is 13 digits long until 2286 (plus one for the dot)
+#define SUFFIX_LEN 14
 
 static char* paths[5];
 static int pathcount = 0;
@@ -352,7 +352,7 @@ static int recycle(const struct inode *srcdir, struct dentry *dentry,
             if(retval == -EEXIST && !suffixed)
             {
                 snprintf(pathsuffix, SUFFIX_LEN + 1, ".%lld",
-                    ktime_get_real_seconds());
+                    ktime_get_coarse_real_ns() / 1000000);
 
                 suffixed = true;
                 continue;
