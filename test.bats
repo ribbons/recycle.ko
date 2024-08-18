@@ -164,20 +164,28 @@ load_with_paths() {
 }
 
 @test "files under different roots are moved to correct recycle directories" {
-    load_with_paths root1/recycled root2/recycled
+    local -r MAX_ROOTS=10
+    local -a roots files inodes
 
-    touch "$rootdir/root1/inroot1" "$rootdir/root2/inroot2"
-    inode1=$(stat -c '%i' "$rootdir/root1/inroot1")
-    inode2=$(stat -c '%i' "$rootdir/root2/inroot2")
+    for((i = 0; i < MAX_ROOTS; i++)); do
+        roots+=("root$i/recycled")
+    done
 
-    rm "$rootdir/root1/inroot1" "$rootdir/root2/inroot2"
-    [[ ! -f $rootdir/root1/inroot1 && ! -f $rootdir/root2/inroot2 ]]
+    load_with_paths "${roots[@]}"
 
-    [[ -f $rootdir/root1/recycled/inroot1 ]]
-    [[ -f $rootdir/root2/recycled/inroot2 ]]
+    for((i = 0; i < MAX_ROOTS; i++)); do
+        files+=("$rootdir/root$i/inroot$i")
+    done
 
-    [[ $inode1 -eq $(stat -c '%i' "$rootdir/root1/recycled/inroot1") ]]
-    [[ $inode2 -eq $(stat -c '%i' "$rootdir/root2/recycled/inroot2") ]]
+    touch "${files[@]}"
+    mapfile -t inodes < <(stat -c '%i' "${files[@]}")
+    rm "${files[@]}"
+
+    for((i = 0; i < MAX_ROOTS; i++)); do
+        [[ ! -f "$rootdir/root$i/inroot$i" ]]
+        [[ -f $rootdir/root$i/recycled/inroot$i ]]
+        [[ ${inodes[$i]} -eq $(stat -c '%i' "$rootdir/root$i/recycled/inroot$i") ]]
+    done
 }
 
 @test "recycle succeeds even if recycle dir path not visible in namespace" {

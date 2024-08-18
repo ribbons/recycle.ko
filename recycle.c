@@ -23,7 +23,7 @@ MODULE_LICENSE("GPL");
 // Epoch time in ms is 13 digits long until 2286 (plus one for the dot)
 #define SUFFIX_LEN 14
 
-static char* paths[5];
+static char* paths[10];
 static int pathcount = 0;
 
 module_param_array(paths, charp, &pathcount, 0400);
