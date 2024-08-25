@@ -1,0 +1,9 @@
+# Copyright © 2024 Matt Robinson
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+PACKAGE_NAME="recycle"
+PACKAGE_VERSION="#MODULE_VERSION#"
+BUILT_MODULE_NAME[0]="$PACKAGE_NAME"
+DEST_MODULE_LOCATION[0]="/updates/dkms"
+AUTOINSTALL="YES"

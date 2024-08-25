@@ -1,0 +1,66 @@
+---
+# Copyright © 2024 Matt Robinson
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+name: Release
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-24.04
+    environment: release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: sudo apt-get install -y --no-install-recommends
+                                  build-essential debhelper dh-dkms dkms
+
+      - name: Generate changelog file
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs')
+            const pubdate = new Date(context.payload.release.published_at)
+            fs.writeFileSync("debian/changelog", `recycle-dkms \
+            (${context.payload.release.tag_name}-0) unstable; urgency=medium
+
+              ${context.payload.release.body.trim().split(/\n */).join("\n  ")}
+
+             -- github-actions[bot] \
+            <41898282+github-actions[bot]@users.noreply.github.com>  \
+            ${pubdate.toUTCString().replace(" GMT", " +0000")}
+            `)
+
+      - name: Build .deb package
+        run: dpkg-buildpackage -A
+
+      - name: Upload .deb as release asset
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs')
+            const filename = "recycle-dkms_" +
+              context.payload.release.tag_name + "-0_all.deb"
+
+            await github.rest.repos.uploadReleaseAsset({
+              headers: {
+                "content-type": "application/vnd.debian.binary-package",
+              },
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: context.payload.release.id,
+              data: fs.readFileSync(`../${filename}`),
+              name: filename,
+            })

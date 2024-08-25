@@ -1,0 +1,12 @@
+# Copyright © 2024 Matt Robinson
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+Source: recycle-dkms
+Maintainer: Matt Robinson <packaging@nerdoftheherd.com>
+Build-Depends: debhelper (>= 13), dkms
+
+Package: recycle-dkms
+Architecture: all
+Depends: ${misc:Depends}
+Description: DKMS source for the recycle kernel module
