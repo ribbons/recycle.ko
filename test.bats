@@ -188,6 +188,14 @@ load_with_paths() {
     done
 }
 
+@test "file in recycle dir nested within outer recycle root is ignored" {
+    load_with_paths innerroot/recycled recycled
+
+    touch "$rootdir/innerroot/recycled/inrecycled"
+    rm "$rootdir/innerroot/recycled/inrecycled"
+    [[ ! -f $rootdir/recycled/innerroot/recycled/inrecycled ]]
+}
+
 @test "recycle succeeds even if recycle dir path not visible in namespace" {
     load_with_paths
 

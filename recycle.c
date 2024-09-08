@@ -23,6 +23,12 @@ MODULE_LICENSE("GPL");
 // Epoch time in ms is 13 digits long until 2286 (plus one for the dot)
 #define SUFFIX_LEN 14
 
+enum special_return_vals
+{
+    REACHED_ROOT = 1,
+    IN_RECYCLE_DIR,
+};
+
 static char* paths[10];
 static int pathcount = 0;
 
@@ -72,12 +78,12 @@ static int buf_add_parent(const char* pathbuf, char **pos, struct qstr parent)
     return 0;
 }
 
-static char* collect_path_to_root(const char *pathbuf, char *bufpos,
+static int collect_path_to_root(const char *pathbuf, char **bufpos,
     struct dentry *dir, const struct dentry *recycleroot,
     struct recycler *conf)
 {
     struct dentry *walk = dir;
-    char *result = bufpos;
+    int result = 0;
 
     while(walk != recycleroot)
     {
@@ -86,7 +92,7 @@ static char* collect_path_to_root(const char *pathbuf, char *bufpos,
             pr_debug("Reached root of mount without finding parent of %s\n",
                 conf->path.name);
 
-            result = NULL;
+            result = REACHED_ROOT;
             goto cleanup;
         }
 
@@ -95,17 +101,16 @@ static char* collect_path_to_root(const char *pathbuf, char *bufpos,
             pr_debug("File is already within recycle dir %s\n",
                 conf->path.name);
 
-            result = NULL;
+            result = IN_RECYCLE_DIR;
             goto cleanup;
         }
 
         spin_lock(&walk->d_lock);
-        int error = buf_add_parent(pathbuf, &result, walk->d_name);
+        result = buf_add_parent(pathbuf, bufpos, walk->d_name);
         spin_unlock(&walk->d_lock);
 
-        if(error)
+        if(result)
         {
-            result = ERR_PTR(error);
             goto cleanup;
         }
 
@@ -313,17 +318,16 @@ static int recycle(const struct inode *srcdir, struct dentry *dentry,
         goto cleanup;
     }
 
-    destpath = collect_path_to_root(pathbuf, destpath, dget_parent(dentry),
+    retval = collect_path_to_root(pathbuf, &destpath, dget_parent(dentry),
         recycleroot, conf);
 
-    if(IS_ERR(destpath))
+    if(retval)
     {
-        retval = PTR_ERR(destpath);
-        goto cleanup;
-    }
-    else if(destpath == NULL)
-    {
-        retval = 1;
+        if(retval == IN_RECYCLE_DIR)
+        {
+            retval = 0;
+        }
+
         goto cleanup;
     }
 
