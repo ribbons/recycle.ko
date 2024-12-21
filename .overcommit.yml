@@ -32,6 +32,7 @@ PreCommit:
       - --language=c
       - --enable=all
       - --inline-suppr
+      - --suppress=checkersReport
       - --suppress=missingIncludeSystem
       - "--template={file}:{line}:{message}"
     include:
