@@ -7,5 +7,7 @@ updates:
       time: "06:00"
       timezone: Europe/London
       interval: daily
+    cooldown:
+      default-days: 7
     labels:
       - dependencies
