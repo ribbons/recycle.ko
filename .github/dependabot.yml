@@ -4,9 +4,9 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      time: "06:00"
+      interval: cron
+      cronjob: 30 6 * * *
       timezone: Europe/London
-      interval: daily
     cooldown:
       default-days: 7
     labels:
