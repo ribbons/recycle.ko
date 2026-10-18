@@ -1,5 +1,6 @@
 /*
- * Copyright © 2024 Matt Robinson
+ * Copyright © 2024-2026 Matt Robinson
+ * Copyright © 2025 Josh Poimboeuf
  * Copyright © 2021-2022 Peter Zijlstra
  * Copyright © 2019 Andi Kleen
  * Copyright © 2018 Arnd Bergmann
@@ -22,6 +23,15 @@ MODULE_LICENSE("GPL");
 
 // Epoch time in ms is 13 digits long until 2286 (plus one for the dot)
 #define SUFFIX_LEN 14
+
+// Dummy definition for cppcheck
+#ifndef KERNEL_VERSION
+    #define KERNEL_VERSION(a, b, c) 0
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 18, 0)
+    #define end_creating_path done_path_create
+#endif
 
 enum special_return_vals
 {
@@ -51,7 +61,7 @@ static struct recycler recycleconfs[ARRAY_SIZE(paths)];
         ".globl just_return_func\n"
         ASM_FUNC_ALIGN
         "just_return_func:\n"
-            ANNOTATE_NOENDBR
+            ANNOTATE_NOENDBR "\n"
             ASM_RET
         ".size just_return_func, .-just_return_func\n"
     );
@@ -253,8 +263,22 @@ static int create_dirs(const char *destpath, int pathlen, struct recycler *conf)
 
         struct mnt_idmap *idmap = mnt_idmap(path.mnt);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0)
+        dentry = vfs_mkdir(idmap, path.dentry->d_inode, dentry, 0777
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 19, 0)
+            , NULL
+#endif
+        );
+
+        if(IS_ERR(dentry))
+        {
+            error = PTR_ERR(dentry);
+        }
+#else
         error = vfs_mkdir(idmap, path.dentry->d_inode, dentry, 0777);
-        done_path_create(&path, dentry);
+#endif
+
+        end_creating_path(&path, dentry);
 
         if(error)
         {
@@ -378,7 +402,7 @@ static int recycle(const struct inode *srcdir, struct dentry *dentry,
     retval = vfs_link(dentry, idmap, destdir.dentry->d_inode, new_dentry, NULL);
     inode_lock(dentry->d_inode);
 
-    done_path_create(&destdir, new_dentry);
+    end_creating_path(&destdir, new_dentry);
 
     if(retval)
     {
