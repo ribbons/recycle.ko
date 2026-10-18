@@ -11,6 +11,7 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <generated/utsrelease.h>
 #include <linux/ftrace.h>
 #include <linux/module.h>
 #include <linux/namei.h>
@@ -31,6 +32,12 @@ MODULE_LICENSE("GPL");
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 18, 0)
     #define end_creating_path done_path_create
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 2, 0) && \
+    !(LINUX_VERSION_MAJOR == 6 && LINUX_VERSION_PATCHLEVEL == 8 && \
+        UTS_UBUNTU_RELEASE_ABI >= 147 && !defined(UBUNTU_AZURE_KERNEL))
+    #define VFS_PATH_PARENT_LOOKUP_TAKES_LAST_TYPE
 #endif
 
 enum special_return_vals
@@ -139,9 +146,16 @@ static struct dentry *vfs_path_create(struct filename *name, struct path *path,
 {
     struct dentry *dentry;
     struct qstr last;
+#ifdef VFS_PATH_PARENT_LOOKUP_TAKES_LAST_TYPE
     int type;
+#endif
 
-    int error = vfs_path_parent_lookup(name, 0, path, &last, &type, root);
+    int error = vfs_path_parent_lookup(
+        name, 0, path, &last,
+#ifdef VFS_PATH_PARENT_LOOKUP_TAKES_LAST_TYPE
+        &type,
+#endif
+        root);
 
     if(error)
     {

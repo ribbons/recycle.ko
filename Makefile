@@ -1,13 +1,15 @@
-# Copyright © 2024 Matt Robinson
+# Copyright © 2024-2026 Matt Robinson
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
+MODLIB := /lib/modules/$(shell uname -r)
+
 all:
-	make -C /lib/modules/$(shell uname -r)/build M=$(CURDIR) modules
+	make -C $(MODLIB)/build M=$(CURDIR) modules
 
 install:
-	make -C /lib/modules/$(shell uname -r)/build M=$(CURDIR) modules_install
+	make -C $(MODLIB)/build M=$(CURDIR) modules_install
 	depmod -A
 
 clean:
-	make -C /lib/modules/$(shell uname -r)/build M=$(CURDIR) clean
+	make -C $(MODLIB)/build M=$(CURDIR) clean

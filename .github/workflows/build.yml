@@ -15,7 +15,36 @@ permissions:
 
 jobs:
   build:
-    name: Build & test
+    name: Build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        container:
+          - ubuntu:24.04
+          - ubuntu:26.04
+    container: ${{ matrix.container }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+              gcc linux-headers-generic make
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Build
+        run: |
+          kernelname=$(ls -1 /lib/modules/ | tail -n 1)
+          KCFLAGS=-fanalyzer make MODLIB=/lib/modules/$kernelname
+
+  test:
+    name: Test
+    needs: build
     strategy:
       matrix:
         os:
@@ -24,6 +53,7 @@ jobs:
           - ubuntu-26.04
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -32,7 +62,7 @@ jobs:
         run: sudo apt-get install bats
 
       - name: Build
-        run: KCFLAGS=-fanalyzer make
+        run: KCFLAGS='-DUBUNTU_AZURE_KERNEL' make
 
       - name: Bats tests
         run: ./test.bats
