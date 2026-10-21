@@ -1,5 +1,5 @@
 ---
-# Copyright © 2024 Matt Robinson
+# Copyright © 2024-2026 Matt Robinson
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -15,7 +15,7 @@ permissions:
 jobs:
   release:
     name: Release
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     environment: release
     steps:
       - name: Checkout
