@@ -394,7 +394,7 @@ static int recycle(const struct inode *srcdir, struct dentry *dentry,
             if(retval == -EEXIST && !suffixed)
             {
                 snprintf(pathsuffix, SUFFIX_LEN + 1, ".%lld",
-                    ktime_get_coarse_real_ns() / 1000000);
+                    ktime_get_real_ns() / 1000000);
 
                 suffixed = true;
                 continue;
