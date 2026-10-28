@@ -21,6 +21,7 @@ jobs:
       fail-fast: false
       matrix:
         container:
+          - debian:stable-slim
           - ubuntu:24.04
           - ubuntu:26.04
     container: ${{ matrix.container }}

@@ -35,6 +35,8 @@ MODULE_LICENSE("GPL");
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(7, 2, 0) && \
+    !(LINUX_VERSION_MAJOR == 6 && LINUX_VERSION_PATCHLEVEL == 12 && \
+        LINUX_VERSION_SUBLEVEL >= 97) && \
     !(LINUX_VERSION_MAJOR == 6 && LINUX_VERSION_PATCHLEVEL == 8 && \
         UTS_UBUNTU_RELEASE_ABI >= 147 && !defined(UBUNTU_AZURE_KERNEL))
     #define VFS_PATH_PARENT_LOOKUP_TAKES_LAST_TYPE
@@ -72,12 +74,6 @@ static struct recycler recycleconfs[ARRAY_SIZE(paths)];
             ASM_RET
         ".size just_return_func, .-just_return_func\n"
     );
-
-    // cppcheck-suppress unusedFunction; referenced via a macro
-    void override_function_with_return(struct pt_regs *regs)
-    {
-        regs->ip = (unsigned long)&just_return_func;
-    }
 #endif
 
 static int buf_add_parent(const char* pathbuf, char **pos, struct qstr parent)
@@ -462,7 +458,11 @@ static void pre_security_inode_unlink(unsigned long ip, unsigned long parent_ip,
     if(result < 0)
     {
         ftrace_regs_set_return_value(regs, result);
+#ifdef __x86_64__
+        arch_ftrace_regs(regs)->regs.ip = (unsigned long)&just_return_func;
+#else
         ftrace_override_function_with_return(regs);
+#endif
     }
 }
 
