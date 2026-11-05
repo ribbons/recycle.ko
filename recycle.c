@@ -172,10 +172,14 @@ static struct dentry *vfs_path_create(struct filename *name, struct path *path,
         return ERR_PTR(error);
     }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 19, 0)
+    dentry = start_creating_noperm(path->dentry, &last);
+#else
     inode_lock_nested(path->dentry->d_inode, I_MUTEX_PARENT);
 
     dentry = lookup_one_qstr_excl(&last, path->dentry,
         LOOKUP_CREATE | LOOKUP_EXCL);
+#endif
 
     if(IS_ERR(dentry))
     {

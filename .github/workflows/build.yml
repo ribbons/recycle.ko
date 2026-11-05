@@ -22,6 +22,7 @@ jobs:
       matrix:
         container:
           - debian:stable-slim
+          - debian:testing-slim
           - ubuntu:24.04
           - ubuntu:26.04
     container: ${{ matrix.container }}
