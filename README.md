@@ -15,8 +15,8 @@ directory.
 
 It is probably worth bearing in mind that this is my first kernel module so I
 can't guarantee that it won't crash your machine or eat all of your data etc.
-However, I do run it on the server which stores my personal files - hopefully
-that demonstrates my confidence.
+However, I have used it since 2024 on the server which stores all my personal
+files - hopefully that demonstrates my confidence.
 
 Note that this module hasn't been implemented to work with delegated inodes
 (e.g. directories mounted via NFS on a client), I'd recommend using it on the
