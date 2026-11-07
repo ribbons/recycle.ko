@@ -179,26 +179,24 @@ static struct dentry *vfs_path_create(struct filename *name, struct path *path,
 
     dentry = lookup_one_qstr_excl(&last, path->dentry,
         LOOKUP_CREATE | LOOKUP_EXCL);
+
+    if(IS_ERR(dentry))
+    {
+        inode_unlock(path->dentry->d_inode);
+    }
 #endif
 
     if(IS_ERR(dentry))
     {
-        goto cleanup;
+        end_creating_path(path, dentry);
+        return dentry;
     }
 
     if(d_is_positive(dentry))
     {
-        dput(dentry);
+        end_creating_path(path, dentry);
         dentry = ERR_PTR(-EEXIST);
-        goto cleanup;
     }
-
-    return dentry;
-
-cleanup:
-    inode_unlock(path->dentry->d_inode);
-    mnt_drop_write(path->mnt);
-    path_put(path);
 
     return dentry;
 }
